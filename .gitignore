@@ -1,0 +1,6 @@
+# local runtime artifacts — never commit these
+usage-cache.json
+usage-cache.json.tmp
+.credentials.json
+__pycache__/
+*.pyc
