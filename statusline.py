@@ -27,6 +27,13 @@ TTL = 60  # 秒;额度缓存有效期
 # 想强制:把它设为 "zh" / "en" / "ja",或设环境变量 CC_STATUSLINE_LANG。
 LANG_OVERRIDE = ""
 
+# 5 小时窗口重置信息的显示方式:
+#   "clock"     重置时刻(本机时区),如 ↻15:50      ← 默认
+#   "countdown" 距重置倒计时,如 ↻3h
+#   "both"      两者,如 ↻15:50(3h)
+#   "off"       不显示
+RESET_STYLE = "clock"
+
 I18N = {
     "zh":    {"ctx_rem": "(剩{rem:.0f}%)",       "win": "{label}剩{rem:.0f}%",      "soon": "即将"},
     "zh-TW": {"ctx_rem": "(剩{rem:.0f}%)",       "win": "{label}剩{rem:.0f}%",      "soon": "即將"},
@@ -123,19 +130,28 @@ def maybe_spawn_refresh():
         except Exception:
             pass
 
+def _countdown(mins):
+    if mins <= 0:
+        return T["soon"]
+    if mins < 60:
+        return f"{mins}m"
+    h = mins // 60
+    if h < 24:
+        return f"{h}h"
+    return f"{h//24}d"
+
 def fmt_reset(iso):
+    if RESET_STYLE == "off":
+        return ""
     try:
         t = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-        delta = t - datetime.now(timezone.utc)
-        mins = int(delta.total_seconds() // 60)
-        if mins <= 0:
-            return T["soon"]
-        if mins < 60:
-            return f"{mins}m"
-        h = mins // 60
-        if h < 24:
-            return f"{h}h"
-        return f"{h//24}d"
+        mins = int((t - datetime.now(timezone.utc)).total_seconds() // 60)
+        clock = t.astimezone().strftime("%H:%M")  # 本机时区
+        if RESET_STYLE == "countdown":
+            return _countdown(mins)
+        if RESET_STYLE == "both":
+            return f"{clock}({_countdown(mins)})"
+        return clock  # "clock"
     except Exception:
         return ""
 

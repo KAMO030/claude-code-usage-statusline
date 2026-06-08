@@ -105,6 +105,7 @@ Edit the constants at the top of `statusline.py`:
 |---|---|---|
 | `TTL` | `60` | Seconds before the plan-quota cache is refreshed |
 | `LANG_OVERRIDE` | `""` (auto) | Display language, see below |
+| `RESET_STYLE` | `"clock"` | 5h reset display: `clock` reset time (e.g. `↻15:50`) / `countdown` (`↻3h`) / `both` (`↻15:50(3h)`) / `off` |
 
 ### 🌐 Language
 

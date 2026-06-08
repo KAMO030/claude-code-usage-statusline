@@ -103,6 +103,7 @@ anthropic-version: 2023-06-01
 |---|---|---|
 | `TTL` | `60` | 额度缓存刷新间隔(秒) |
 | `LANG_OVERRIDE` | `""`(自动) | 显示语言,见下方 |
+| `RESET_STYLE` | `"clock"` | 5h 重置显示:`clock` 重置时刻(如 `↻15:50`)/ `countdown` 倒计时(`↻3h`)/ `both`(`↻15:50(3h)`)/ `off` 不显示 |
 
 ### 🌐 语言
 
