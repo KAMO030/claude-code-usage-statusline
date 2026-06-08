@@ -145,8 +145,12 @@ def fmt_reset(iso):
         return ""
     try:
         t = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-        mins = int((t - datetime.now(timezone.utc)).total_seconds() // 60)
-        clock = t.astimezone().strftime("%H:%M")  # 本机时区
+        now = datetime.now(timezone.utc)
+        mins = int((t - now).total_seconds() // 60)
+        local = t.astimezone()  # 本机时区
+        # 跨天的(如 7 天窗口)带上日期,否则只显示时刻
+        same_day = local.date() == datetime.now().astimezone().date()
+        clock = local.strftime("%H:%M" if same_day else "%m-%d %H:%M")
         if RESET_STYLE == "countdown":
             return _countdown(mins)
         if RESET_STYLE == "both":
@@ -174,7 +178,11 @@ def usage_segment():
         out.append(c(remain_color(rem), s))
     if sd.get("utilization") is not None:
         rem = 100 - sd["utilization"]
-        out.append(c(remain_color(rem), T["win"].format(label="7d", rem=rem)))
+        rst = fmt_reset(sd.get("resets_at", ""))
+        s = T["win"].format(label="7d", rem=rem)
+        if rst:
+            s += c(DIM, f"↻{rst}")
+        out.append(c(remain_color(rem), s))
     return " ".join(out) if out else None
 
 # ---------- context:解析 transcript ----------
@@ -226,7 +234,7 @@ def main():
     parts = [c(CYAN, f"⚡{model}")]
     parts.append(c(ctx_col, f"ctx {human(used)}/{human(ctx_max)} {pct:.0f}%") + c(DIM, T["ctx_rem"].format(rem=rem)))
     if used or out:
-        parts.append(c(DIM, f"⬆{human(used)} ⬇{human(out)}"))
+        parts.append(c(DIM, f"⬆ {human(used)}  ⬇ {human(out)}"))
     seg = usage_segment()
     if seg:
         parts.append(seg)

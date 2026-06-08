@@ -5,7 +5,7 @@
 A zero-dependency status line for [Claude Code](https://claude.com/claude-code) that **always** shows, in your terminal: model · context usage · per-turn tokens · **plan quota** · session cost. Pure Python standard library — **no node, no npm**.
 
 ```
-⚡Opus 4.8 | ctx 38.1k/200.0k 19%(剩81%) | ⬆38.1k ⬇3.8k | 5h剩93%↻4h 7d剩66% | $0.342
+⚡Opus 4.8 | ctx 38.1k/200.0k 19%(剩81%) | ⬆ 38.1k  ⬇ 3.8k | 5h剩93%↻15:50 7d剩66%↻06-11 04:00 | $0.342
 ```
 
 ---
@@ -54,8 +54,8 @@ Restart Claude Code, or run `/statusline` in a session to reload. The bar appear
 |---|---|---|
 | `⚡Opus 4.8` | Active model | statusLine stdin |
 | `ctx 38.1k/200.0k 19%(剩81%)` | **Context window** used / total / used% / remaining%, color-coded green→yellow→red | current session transcript |
-| `⬆38.1k ⬇3.8k` | Input / output tokens of the last turn | current session transcript |
-| `5h剩93%↻4h 7d剩66%` | **Plan quota** — 5-hour window (with reset countdown) + 7-day window remaining; turns yellow/red near the limit | `GET /api/oauth/usage` |
+| `⬆ 38.1k  ⬇ 3.8k` | Input / output tokens of the last turn | current session transcript |
+| `5h剩93%↻15:50 7d剩66%↻06-11 04:00` | **Plan quota** — 5-hour and 7-day windows remaining, each with its reset time (`↻`); turns yellow/red near the limit | `GET /api/oauth/usage` |
 | `$0.342` | Cost of the current session (USD) | statusLine stdin |
 
 > The labels `剩` (remaining) and `↻` (reset) are kept compact; rename them in `usage_segment()` if you prefer English text.
@@ -105,7 +105,7 @@ Edit the constants at the top of `statusline.py`:
 |---|---|---|
 | `TTL` | `60` | Seconds before the plan-quota cache is refreshed |
 | `LANG_OVERRIDE` | `""` (auto) | Display language, see below |
-| `RESET_STYLE` | `"clock"` | 5h reset display: `clock` reset time (e.g. `↻15:50`) / `countdown` (`↻3h`) / `both` (`↻15:50(3h)`) / `off` |
+| `RESET_STYLE` | `"clock"` | 5h/7d reset display: `clock` reset time (e.g. `↻15:50`; cross-day adds date `↻06-11 04:00`) / `countdown` (`↻3h`) / `both` (`↻15:50(3h)`) / `off` |
 
 ### 🌐 Language
 
