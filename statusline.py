@@ -87,11 +87,34 @@ def remain_color(rem):
         return YELLOW
     return GREEN
 
+# ---------- 凭证:文件优先,macOS 回退 Keychain ----------
+def read_access_token():
+    """读取 Claude OAuth accessToken。
+
+    优先读 ~/.claude/.credentials.json;该文件不存在时回退到 macOS 登录钥匙串
+    ——macOS 上 Claude Code 默认把凭证存进 Keychain(条目名
+    "Claude Code-credentials")而非该文件,否则套餐额度段在 mac 上永远不显示。
+    其它平台无此文件时维持原样抛错(由 refresh_usage 静默兜底)。
+    """
+    try:
+        with open(CRED) as f:
+            return json.load(f)["claudeAiOauth"]["accessToken"]
+    except FileNotFoundError:
+        if sys.platform != "darwin":
+            raise
+        out = subprocess.run(
+            ["security", "find-generic-password",
+             "-s", "Claude Code-credentials", "-w"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode != 0 or not out.stdout.strip():
+            raise RuntimeError("keychain lookup failed")
+        return json.loads(out.stdout)["claudeAiOauth"]["accessToken"]
+
 # ---------- 额度:后台刷新 ----------
 def refresh_usage():
     try:
-        with open(CRED) as f:
-            tok = json.load(f)["claudeAiOauth"]["accessToken"]
+        tok = read_access_token()
         req = urllib.request.Request(
             "https://api.anthropic.com/api/oauth/usage",
             headers={
