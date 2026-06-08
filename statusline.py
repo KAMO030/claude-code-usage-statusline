@@ -28,9 +28,16 @@ TTL = 60  # 秒;额度缓存有效期
 LANG_OVERRIDE = ""
 
 I18N = {
-    "zh": {"ctx_rem": "(剩{rem:.0f}%)", "win": "{label}剩{rem:.0f}%", "soon": "即将"},
-    "en": {"ctx_rem": "({rem:.0f}% left)", "win": "{label} {rem:.0f}% left", "soon": "soon"},
-    "ja": {"ctx_rem": "(残{rem:.0f}%)", "win": "{label}残{rem:.0f}%", "soon": "間もなく"},
+    "zh":    {"ctx_rem": "(剩{rem:.0f}%)",       "win": "{label}剩{rem:.0f}%",      "soon": "即将"},
+    "zh-TW": {"ctx_rem": "(剩{rem:.0f}%)",       "win": "{label}剩{rem:.0f}%",      "soon": "即將"},
+    "en":    {"ctx_rem": "({rem:.0f}% left)",    "win": "{label} {rem:.0f}% left",  "soon": "soon"},
+    "ja":    {"ctx_rem": "(残{rem:.0f}%)",       "win": "{label}残{rem:.0f}%",      "soon": "間もなく"},
+    "ko":    {"ctx_rem": "({rem:.0f}% 남음)",    "win": "{label} {rem:.0f}% 남음",  "soon": "곧"},
+    "es":    {"ctx_rem": "({rem:.0f}% rest.)",   "win": "{label} {rem:.0f}% rest.", "soon": "pronto"},
+    "fr":    {"ctx_rem": "({rem:.0f}% rest.)",   "win": "{label} {rem:.0f}% rest.", "soon": "bientôt"},
+    "de":    {"ctx_rem": "({rem:.0f}% übrig)",   "win": "{label} {rem:.0f}% übrig", "soon": "bald"},
+    "pt":    {"ctx_rem": "({rem:.0f}% rest.)",   "win": "{label} {rem:.0f}% rest.", "soon": "em breve"},
+    "ru":    {"ctx_rem": "(ост. {rem:.0f}%)",    "win": "{label} ост. {rem:.0f}%",  "soon": "скоро"},
 }
 
 def detect_lang():
@@ -40,11 +47,14 @@ def detect_lang():
             if os.environ.get(e):
                 v = os.environ[e]
                 break
-    v = (v or "en").lower()
+    v = (v or "en").lower().replace("_", "-")
     if v.startswith("zh"):
+        if any(x in v for x in ("tw", "hk", "mo", "hant")):
+            return "zh-TW"
         return "zh"
-    if v.startswith("ja"):
-        return "ja"
+    for code in ("ja", "ko", "es", "fr", "de", "pt", "ru"):
+        if v.startswith(code):
+            return code
     return "en"
 
 T = I18N[detect_lang()]

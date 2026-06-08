@@ -108,15 +108,22 @@ Edit the constants at the top of `statusline.py`:
 
 ### 🌐 Language
 
-The display language **follows your system by default** (reads `LC_ALL` → `LC_MESSAGES` → `LANG`); no setup needed. Supported:
+The display language **follows your system by default** (reads `LC_ALL` → `LC_MESSAGES` → `LANG`); no setup needed. 10 languages supported:
 
-| Value | Language | Example |
+| Value | Language | Example (remaining) |
 |---|---|---|
-| `zh` | 简体中文 | `ctx …(剩81%) · 5h剩93% · 7d剩66%` |
-| `en` | English (fallback) | `ctx …(81% left) · 5h 93% left · 7d 66% left` |
-| `ja` | 日本語 | `ctx …(残81%) · 5h残93% · 7d残66%` |
+| `zh` | 简体中文 | `(剩81%) · 5h剩93%` |
+| `zh-TW` | 繁體中文 | `(剩81%) · 5h剩93%` |
+| `en` | English (fallback) | `(81% left) · 5h 93% left` |
+| `ja` | 日本語 | `(残81%) · 5h残93%` |
+| `ko` | 한국어 | `(81% 남음) · 5h 93% 남음` |
+| `es` | Español | `(81% rest.) · 5h 93% rest.` |
+| `fr` | Français | `(81% rest.) · 5h 93% rest.` |
+| `de` | Deutsch | `(81% übrig) · 5h 93% übrig` |
+| `pt` | Português | `(81% rest.) · 5h 93% rest.` |
+| `ru` | Русский | `(ост. 81%) · 5h ост. 93%` |
 
-> Falls back to `en` when the system language isn't recognized. Only the labels (remaining/reset) are localized; numbers and the model name stay as-is.
+> Falls back to `en` when the system language isn't recognized; Traditional vs Simplified Chinese is picked via `zh_TW`/`zh_HK`/`Hant`. Only the labels (remaining/reset) are localized; numbers and the model name stay as-is.
 
 **To force a language**, two ways:
 
