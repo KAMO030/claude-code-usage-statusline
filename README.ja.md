@@ -104,6 +104,31 @@ anthropic-version: 2023-06-01
 | 定数 | 既定 | 効果 |
 |---|---|---|
 | `TTL` | `60` | プラン残量キャッシュの更新間隔(秒) |
+| `LANG_OVERRIDE` | `""`(自動) | 表示言語、下記参照 |
+
+### 🌐 言語
+
+表示言語は**既定でシステムに追従**(`LC_ALL` → `LC_MESSAGES` → `LANG` を読む)、設定不要。対応:
+
+| 値 | 言語 | 例 |
+|---|---|---|
+| `zh` | 简体中文 | `ctx …(剩81%) · 5h剩93% · 7d剩66%` |
+| `en` | English(フォールバック) | `ctx …(81% left) · 5h 93% left · 7d 66% left` |
+| `ja` | 日本語 | `ctx …(残81%) · 5h残93% · 7d残66%` |
+
+> システム言語を認識できない場合は `en` にフォールバック。ローカライズされるのはラベル(残り/リセット)のみで、数値とモデル名はそのままです。
+
+**言語を固定する**方法は 2 つ:
+
+- スクリプト先頭の定数を編集:`LANG_OVERRIDE = "ja"`
+- または `settings.json` のコマンドに環境変数を追加(最優先):
+  ```json
+  "command": "CC_STATUSLINE_LANG=en python3 ~/.claude/statusline.py"
+  ```
+
+優先順位:`CC_STATUSLINE_LANG` 環境変数 > `LANG_OVERRIDE` 定数 > システム言語 > `en`。
+
+### その他
 
 セグメントを減らしたい場合、`main()` 内の各 `parts.append(...)` は独立しているので不要な行を削除。プランを**残り%**ではなく**使用%**にするには、`usage_segment()` の `100 - utilization` を `utilization` に戻します。
 

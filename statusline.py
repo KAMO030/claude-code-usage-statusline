@@ -22,6 +22,33 @@ CACHE = os.path.join(HOME, ".claude", "usage-cache.json")
 SELF = os.path.abspath(__file__)
 TTL = 60  # 秒;额度缓存有效期
 
+# ---------- 语言 ----------
+# 显示语言。留空 "" = 自动读系统语言(LC_ALL/LC_MESSAGES/LANG)。
+# 想强制:把它设为 "zh" / "en" / "ja",或设环境变量 CC_STATUSLINE_LANG。
+LANG_OVERRIDE = ""
+
+I18N = {
+    "zh": {"ctx_rem": "(剩{rem:.0f}%)", "win": "{label}剩{rem:.0f}%", "soon": "即将"},
+    "en": {"ctx_rem": "({rem:.0f}% left)", "win": "{label} {rem:.0f}% left", "soon": "soon"},
+    "ja": {"ctx_rem": "(残{rem:.0f}%)", "win": "{label}残{rem:.0f}%", "soon": "間もなく"},
+}
+
+def detect_lang():
+    v = os.environ.get("CC_STATUSLINE_LANG") or LANG_OVERRIDE
+    if not v:
+        for e in ("LC_ALL", "LC_MESSAGES", "LANG"):
+            if os.environ.get(e):
+                v = os.environ[e]
+                break
+    v = (v or "en").lower()
+    if v.startswith("zh"):
+        return "zh"
+    if v.startswith("ja"):
+        return "ja"
+    return "en"
+
+T = I18N[detect_lang()]
+
 # ---------- ANSI ----------
 def c(code, s):
     return f"\033[{code}m{s}\033[0m"
@@ -92,7 +119,7 @@ def fmt_reset(iso):
         delta = t - datetime.now(timezone.utc)
         mins = int(delta.total_seconds() // 60)
         if mins <= 0:
-            return "即将"
+            return T["soon"]
         if mins < 60:
             return f"{mins}m"
         h = mins // 60
@@ -115,13 +142,13 @@ def usage_segment():
     if fh.get("utilization") is not None:
         rem = 100 - fh["utilization"]
         rst = fmt_reset(fh.get("resets_at", ""))
-        s = f"5h剩{rem:.0f}%"
+        s = T["win"].format(label="5h", rem=rem)
         if rst:
             s += c(DIM, f"↻{rst}")
         out.append(c(remain_color(rem), s))
     if sd.get("utilization") is not None:
         rem = 100 - sd["utilization"]
-        out.append(c(remain_color(rem), f"7d剩{rem:.0f}%"))
+        out.append(c(remain_color(rem), T["win"].format(label="7d", rem=rem)))
     return " ".join(out) if out else None
 
 # ---------- context:解析 transcript ----------
@@ -171,7 +198,7 @@ def main():
     ctx_col = RED if pct >= 85 else (YELLOW if pct >= 60 else GREEN)
 
     parts = [c(CYAN, f"⚡{model}")]
-    parts.append(c(ctx_col, f"ctx {human(used)}/{human(ctx_max)} {pct:.0f}%") + c(DIM, f"(剩{rem:.0f}%)"))
+    parts.append(c(ctx_col, f"ctx {human(used)}/{human(ctx_max)} {pct:.0f}%") + c(DIM, T["ctx_rem"].format(rem=rem)))
     if used or out:
         parts.append(c(DIM, f"⬆{human(used)} ⬇{human(out)}"))
     seg = usage_segment()

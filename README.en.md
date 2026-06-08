@@ -104,6 +104,31 @@ Edit the constants at the top of `statusline.py`:
 | Constant | Default | Effect |
 |---|---|---|
 | `TTL` | `60` | Seconds before the plan-quota cache is refreshed |
+| `LANG_OVERRIDE` | `""` (auto) | Display language, see below |
+
+### 🌐 Language
+
+The display language **follows your system by default** (reads `LC_ALL` → `LC_MESSAGES` → `LANG`); no setup needed. Supported:
+
+| Value | Language | Example |
+|---|---|---|
+| `zh` | 简体中文 | `ctx …(剩81%) · 5h剩93% · 7d剩66%` |
+| `en` | English (fallback) | `ctx …(81% left) · 5h 93% left · 7d 66% left` |
+| `ja` | 日本語 | `ctx …(残81%) · 5h残93% · 7d残66%` |
+
+> Falls back to `en` when the system language isn't recognized. Only the labels (remaining/reset) are localized; numbers and the model name stay as-is.
+
+**To force a language**, two ways:
+
+- Edit the constant at the top of the script: `LANG_OVERRIDE = "ja"`
+- Or add an env var in the `settings.json` command (highest priority):
+  ```json
+  "command": "CC_STATUSLINE_LANG=en python3 ~/.claude/statusline.py"
+  ```
+
+Priority: `CC_STATUSLINE_LANG` env var > `LANG_OVERRIDE` constant > system language > `en`.
+
+### Other
 
 Want fewer segments? Each piece is an independent `parts.append(...)` in `main()` — delete the line you don't want. To show **used%** instead of **remaining%** for the plan, change `100 - utilization` back to `utilization` in `usage_segment()`.
 

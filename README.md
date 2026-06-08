@@ -102,6 +102,31 @@ anthropic-version: 2023-06-01
 | 常量 | 默认 | 作用 |
 |---|---|---|
 | `TTL` | `60` | 额度缓存刷新间隔(秒) |
+| `LANG_OVERRIDE` | `""`(自动) | 显示语言,见下方 |
+
+### 🌐 语言
+
+显示语言**默认跟随系统**(读 `LC_ALL` → `LC_MESSAGES` → `LANG`),无需配置。支持:
+
+| 取值 | 语言 | 示例 |
+|---|---|---|
+| `zh` | 简体中文(默认回退前) | `ctx …(剩81%) · 5h剩93% · 7d剩66%` |
+| `en` | English | `ctx …(81% left) · 5h 93% left · 7d 66% left` |
+| `ja` | 日本語 | `ctx …(残81%) · 5h残93% · 7d残66%` |
+
+> 系统语言无法识别时回退到 `en`。只有标签文字(剩余/重置)本地化,数字与模型名保持原样。
+
+**强制指定语言**有两种方式:
+
+- 改脚本顶部常量:`LANG_OVERRIDE = "ja"`
+- 或在 `settings.json` 的命令里加环境变量(优先级最高):
+  ```json
+  "command": "CC_STATUSLINE_LANG=en python3 ~/.claude/statusline.py"
+  ```
+
+优先级:`CC_STATUSLINE_LANG` 环境变量 > `LANG_OVERRIDE` 常量 > 系统语言 > `en`。
+
+### 其他
 
 想精简段落?`main()` 里每段都是独立的 `parts.append(...)`,删掉不想要的那行即可。想把套餐**剩余%**改回**已用%**,把 `usage_segment()` 里的 `100 - utilization` 改回 `utilization`。
 
