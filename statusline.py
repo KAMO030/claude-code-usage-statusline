@@ -223,11 +223,11 @@ def _countdown(mins):
         return T["soon"]
     if mins < 60:
         return f"{mins}m"
-    h = mins // 60
+    h, m = divmod(mins, 60)
     if h < 24:
-        return f"{h}h"
+        return f"{h}h{m}m" if m else f"{h}h"
     d, hh = divmod(h, 24)
-    return f"{d}d{hh}h" if hh else f"{d}d"  # 7 天窗精确到小时,如 5d3h
+    return f"{d}d{hh}h" if hh else f"{d}d"  # 两位精度:天→时 / 时→分 / 分
 
 _WD_EN = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
