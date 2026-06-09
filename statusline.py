@@ -264,6 +264,15 @@ def fmt_reset(iso):
     except Exception:
         return ""
 
+def reset_countdown(iso):
+    """距该窗重置还剩多久(窗口剩余时长):45m / 2h / 5d3h / 即将。无法解析返回 ''。"""
+    try:
+        t = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        mins = int((t - datetime.now(timezone.utc)).total_seconds() // 60)
+        return _countdown(mins)
+    except Exception:
+        return ""
+
 def usage_segment():
     maybe_spawn_refresh()
     try:
@@ -276,11 +285,13 @@ def usage_segment():
     sd = u.get("seven_day") or {}
     if fh.get("utilization") is not None:
         rem = 100 - fh["utilization"]
-        out.append(usage_window("5h", rem, fmt_reset(fh.get("resets_at", ""))))
+        iso = fh.get("resets_at", "")
+        out.append(usage_window(reset_countdown(iso) or "5h", rem, fmt_reset(iso)))
     if sd.get("utilization") is not None:
         rem = 100 - sd["utilization"]
-        out.append(usage_window("7d", rem, fmt_reset(sd.get("resets_at", ""))))
-    return "  ".join(out) if out else None  # 双空格分隔 5h/7d,留足间隙
+        iso = sd.get("resets_at", "")
+        out.append(usage_window(reset_countdown(iso) or "7d", rem, fmt_reset(iso)))
+    return "  ".join(out) if out else None  # 双空格分隔两窗,留足间隙
 
 # ---------- context:解析 transcript ----------
 def ctx_tokens(transcript):
