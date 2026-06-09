@@ -8,11 +8,14 @@
   默认            渲染状态栏(读 stdin JSON)
   --refresh       后台模式:打接口写缓存(由脚本自己 fork 调用)
 """
+import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import time
+import unicodedata
 import urllib.request
 from datetime import datetime, timezone
 
@@ -33,6 +36,26 @@ LANG_OVERRIDE = ""
 #   "both"      两者,如 ↻15:50(3h)
 #   "off"       不显示
 RESET_STYLE = "clock"
+
+# 进度条格数:上下文 / 额度段的 █░ 进度条宽度(想更长/更短改这里)
+BAR_W = 8
+
+# ---------- 可选段开关(常量设默认;可用环境变量 CC_STATUSLINE_<NAME>=1/0 覆盖) ----------
+def _on(name, default):
+    v = os.environ.get("CC_STATUSLINE_" + name)
+    return default if v is None else v.strip().lower() in ("1", "true", "yes", "on")
+
+SHOW_MODE   = _on("MODE",   True)    # #8  model 后 effort/thinking/output_style 字形簇
+SHOW_WT     = _on("WT",     True)    # #12 worktree 徽章(仅 linked worktree 内出现)
+SHOW_NET    = _on("NET",    True)    # #10A 净改动量 ✎+N -N(纯 stdin)
+SHOW_TOOLS  = _on("TOOLS",  False)   # #10B 工具混合(扫 transcript,按 block.id 去重)
+SHOW_HEALTH = _on("HEALTH", False)   # #10C 工具失败健康点(最近 N 次窗口)
+SHOW_TURN   = _on("TURN",   False)   # #10D 上回合时延(user→assistant)
+SHOW_GIT    = _on("GIT",    True)    # #11 git 分支+脏文件(后台缓存,渲染非阻塞)
+GIT_TTL     = 15                      # git 缓存有效期(秒)
+FAIL_WINDOW = 50                      # #10C 仅统计最近 N 次 tool_result
+WRAP        = _on("WRAP", True)       # 行太宽时按终端宽度(COLUMNS)自动换行
+WRAP_WIDTH  = 0                       # 0=自动读 COLUMNS;>0 则强制按该宽度换行
 
 I18N = {
     "zh":    {"ctx_rem": "(剩{rem:.0f}%)",       "win": "{label}剩{rem:.0f}%",      "soon": "即将"},
@@ -64,7 +87,8 @@ def detect_lang():
             return code
     return "en"
 
-T = I18N[detect_lang()]
+LANG = detect_lang()
+T = I18N[LANG]
 
 # ---------- ANSI ----------
 def c(code, s):
@@ -80,12 +104,53 @@ def human(n):
         return f"{n/1_000:.1f}k"
     return str(n)
 
+_ANSI = re.compile(r"\033\[[0-9;]*m")
+
+def vis_width(s):
+    """段落的终端可见宽度:剥掉 ANSI;宽字符(CJK/emoji)算 2,组合字符算 0。"""
+    w = 0
+    for ch in _ANSI.sub("", s):
+        if unicodedata.combining(ch):
+            continue
+        w += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+    return w
+
+def wrap_segments(parts, width):
+    """把段落按 width 贪心打包成多行(同行段间 ` | ` 占 3 宽),返回 list[list]。"""
+    lines, cur, cur_w = [], [], 0
+    for p in parts:
+        pw = vis_width(p)
+        add = pw + (3 if cur else 0)       # 3 = " | " 的可见宽度
+        if cur and cur_w + add > width:
+            lines.append(cur)
+            cur, cur_w = [p], pw
+        else:
+            cur.append(p)
+            cur_w += add
+    if cur:
+        lines.append(cur)
+    return lines
+
 def remain_color(rem):
     if rem <= 15:
         return RED
     if rem <= 40:
         return YELLOW
     return GREEN
+
+def bar(pct, fill):
+    """按百分比生成定宽进度条:填充段用 fill 色 █,剩余段暗显 ░。"""
+    pct = max(0.0, min(100.0, pct))
+    n = max(0, min(BAR_W, round(pct / 100 * BAR_W)))
+    return c(fill, "█" * n) + c(DIM, "░" * (BAR_W - n))
+
+def usage_window(label, rem, rst):
+    """渲染单个额度窗(5h/7d):`5h ███████░ 93% ↻15:50`,bar 填充=剩余%。"""
+    col = remain_color(rem)
+    s = c(col, f"{label} ") + bar(rem, col) + c(col, f" {rem:.0f}%")
+    if rst:
+        s += " " + c(DIM, f"↻{rst}")
+    return s
 
 # ---------- 凭证:文件优先,macOS 回退 Keychain ----------
 def read_access_token():
@@ -163,22 +228,38 @@ def _countdown(mins):
         return f"{h}h"
     return f"{h//24}d"
 
+_WD_EN = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+def friendly_dt(local):
+    """友好的绝对重置时间:今天只给时刻;明天/后天/本周内给相对日;更远给日期。"""
+    diff = (local.date() - datetime.now().astimezone().date()).days
+    hm = local.strftime("%H:%M")
+    if diff <= 0:
+        return hm
+    if diff > 6:
+        return local.strftime("%m-%d ") + hm  # 超过一周回退到日期
+    if LANG.startswith("zh"):
+        tw = LANG == "zh-TW"
+        if diff == 1:
+            return f"明天 {hm}"
+        if diff == 2:
+            return f"{'後天' if tw else '后天'} {hm}"
+        wd = ("週" if tw else "周") + "一二三四五六日"[local.weekday()]
+        return f"{wd} {hm}"
+    return f"{_WD_EN[local.weekday()]} {hm}"
+
 def fmt_reset(iso):
     if RESET_STYLE == "off":
         return ""
     try:
         t = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-        now = datetime.now(timezone.utc)
-        mins = int((t - now).total_seconds() // 60)
-        local = t.astimezone()  # 本机时区
-        # 跨天的(如 7 天窗口)带上日期,否则只显示时刻
-        same_day = local.date() == datetime.now().astimezone().date()
-        clock = local.strftime("%H:%M" if same_day else "%m-%d %H:%M")
+        mins = int((t - datetime.now(timezone.utc)).total_seconds() // 60)
+        clock = friendly_dt(t.astimezone())  # 友好相对日 + 时刻
         if RESET_STYLE == "countdown":
             return _countdown(mins)
         if RESET_STYLE == "both":
             return f"{clock}({_countdown(mins)})"
-        return clock  # "clock"
+        return clock  # "clock"(默认)
     except Exception:
         return ""
 
@@ -194,19 +275,11 @@ def usage_segment():
     sd = u.get("seven_day") or {}
     if fh.get("utilization") is not None:
         rem = 100 - fh["utilization"]
-        rst = fmt_reset(fh.get("resets_at", ""))
-        s = T["win"].format(label="5h", rem=rem)
-        if rst:
-            s += c(DIM, f"↻{rst}")
-        out.append(c(remain_color(rem), s))
+        out.append(usage_window("5h", rem, fmt_reset(fh.get("resets_at", ""))))
     if sd.get("utilization") is not None:
         rem = 100 - sd["utilization"]
-        rst = fmt_reset(sd.get("resets_at", ""))
-        s = T["win"].format(label="7d", rem=rem)
-        if rst:
-            s += c(DIM, f"↻{rst}")
-        out.append(c(remain_color(rem), s))
-    return " ".join(out) if out else None
+        out.append(usage_window("7d", rem, fmt_reset(sd.get("resets_at", ""))))
+    return "  ".join(out) if out else None  # 双空格分隔 5h/7d,留足间隙
 
 # ---------- context:解析 transcript ----------
 def ctx_tokens(transcript):
@@ -234,10 +307,202 @@ def ctx_tokens(transcript):
             pass
     return used, out
 
+# ---------- 通用工具 ----------
+def _write_json_atomic(path, obj):
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(obj, f)
+        os.replace(tmp, path)
+    except Exception:
+        pass
+
+def _parse_ts(s):
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+# ---------- #8 模式字形簇(effort / thinking / output_style) ----------
+_EFFORT = {"low": "lo", "high": "hi", "xhigh": "xh", "max": "mx"}  # medium 默认隐藏
+
+def mode_suffix(data):
+    """model 芯片后缀:仅非默认时出现,默认态返回空串(不改芯片一个字节)。"""
+    g = _EFFORT.get(((data.get("effort") or {}).get("level") or "").lower(), "")
+    if (data.get("thinking") or {}).get("enabled"):
+        g += "⁝"                                  # 思考开:窄字形 tricolon
+    style = (data.get("output_style") or {}).get("name")
+    if style and style != "default":
+        g += style[0].lower()                      # 非默认输出风格:首字母
+    return c(DIM, " " + g) if g else ""
+
+# ---------- #12 worktree 徽章 ----------
+def worktree_segment(data):
+    wt = ((data.get("workspace") or {}).get("git_worktree") or "").strip()
+    if not wt:
+        return None                                # 主树无此字段 → 不渲染
+    if len(wt) > 24:
+        wt = wt[:23] + "…"
+    return c(DIM, f"⑂ {wt}")
+
+# ---------- #10A 净改动量 ----------
+def netlines_segment(cost_obj):
+    add = cost_obj.get("total_lines_added")
+    rem = cost_obj.get("total_lines_removed")
+    if not isinstance(add, (int, float)) or not isinstance(rem, (int, float)):
+        return None
+    if add == 0 and rem == 0:
+        return None
+    return c(GREEN, f"✎+{int(add)}") + " " + c(RED, f"-{int(rem)}")
+
+# ---------- #10 B/C/D 会话级 transcript 度量(单遍,仅在需要时调用) ----------
+def session_metrics(transcript, want_tools, want_health, want_turn):
+    tools, results, last_delta, pending_user = {}, [], None, None
+    if not (transcript and os.path.exists(transcript)):
+        return {}
+    try:
+        with open(transcript, encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                msg = o.get("message") or {}
+                content = msg.get("content")
+                role = msg.get("role") or o.get("type")
+                if isinstance(content, list) and (want_tools or want_health):
+                    for b in content:
+                        if not isinstance(b, dict):
+                            continue
+                        bt = b.get("type")
+                        if bt == "tool_use" and want_tools:
+                            tools.setdefault(b.get("name") or "?", set()).add(b.get("id"))
+                        elif bt == "tool_result" and want_health:
+                            results.append(b.get("is_error") is True)  # None 视为非失败
+                if want_turn:
+                    ts = _parse_ts(o.get("timestamp") or "")
+                    if ts is None:
+                        continue
+                    is_human = role == "user" and (
+                        isinstance(content, str)
+                        or (isinstance(content, list)
+                            and not any(isinstance(b, dict) and b.get("type") == "tool_result"
+                                        for b in content)))
+                    if is_human:
+                        pending_user = ts
+                    elif role == "assistant" and pending_user is not None:
+                        last_delta = ts - pending_user
+                        pending_user = None
+    except Exception:
+        return {}
+    return {
+        "tools": {k: len(v) for k, v in tools.items()},
+        "results": results[-FAIL_WINDOW:],
+        "last_turn": last_delta,
+    }
+
+def tool_mix_segment(tools):
+    if not tools:
+        return None
+    top = sorted(tools.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
+    body = "·".join(f"{name[:3]}{cnt}" for name, cnt in top)
+    return c(DIM, "▸" + body + ("…" if len(tools) > 3 else ""))
+
+def fail_health_segment(results):
+    n = len(results)
+    if n == 0:
+        return None
+    fails = sum(1 for x in results if x)
+    rate = fails / n * 100
+    col = RED if rate >= 20 else (YELLOW if rate >= 5 else GREEN)
+    return c(col, f"●{rate:.0f}% ({fails}/{n})")
+
+def last_turn_segment(secs):
+    if secs is None or secs < 0:
+        return None
+    txt = f"{int(secs)}s" if secs < 60 else _countdown(int(secs // 60))
+    return c(DIM, f"⏱{txt}")
+
+# ---------- #11 git 分支 + 脏文件(后台缓存,渲染非阻塞) ----------
+def git_cache_path(sid):
+    return os.path.join(HOME, ".claude", f"git-cache-{sid}.json")
+
+def _gc_git_caches():
+    cutoff = time.time() - 7 * 86400
+    for p in glob.glob(os.path.join(HOME, ".claude", "git-cache-*.json")):
+        try:
+            if os.path.getmtime(p) < cutoff:
+                os.remove(p)
+        except OSError:
+            pass
+
+def git_refresh(cwd, sid):
+    """后台进程:跑 git 命令,把结果原子写进 per-session 缓存。永不阻塞渲染。"""
+    info = {"is_repo": False, "_fetched_at": time.time()}
+    try:
+        br = subprocess.run(["git", "-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"],
+                            capture_output=True, text=True, timeout=5)
+        if br.returncode == 0:
+            branch = br.stdout.strip()
+        else:  # detached HEAD
+            sh = subprocess.run(["git", "-C", cwd, "rev-parse", "--short", "HEAD"],
+                                capture_output=True, text=True, timeout=5)
+            if sh.returncode != 0:
+                _write_json_atomic(git_cache_path(sid), info)  # 非 git 仓库
+                _gc_git_caches()
+                return
+            branch = "@" + sh.stdout.strip()
+        st = subprocess.run(["git", "-C", cwd, "status", "--porcelain"],
+                            capture_output=True, text=True, timeout=5)
+        dirty = sum(1 for ln in st.stdout.splitlines() if ln.strip()) if st.returncode == 0 else 0
+        info.update(is_repo=True, branch=branch, dirty=dirty)
+    except Exception:
+        pass
+    _write_json_atomic(git_cache_path(sid), info)
+    _gc_git_caches()
+
+def maybe_spawn_git_refresh(cwd, sid):
+    try:
+        fresh = (time.time() - os.path.getmtime(git_cache_path(sid))) < GIT_TTL
+    except OSError:
+        fresh = False
+    if not fresh:
+        try:
+            subprocess.Popen([sys.executable, SELF, "--git-refresh", cwd, sid],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             stdin=subprocess.DEVNULL, start_new_session=True)
+        except Exception:
+            pass
+
+def git_segment(cwd, sid):
+    if not cwd or not sid:
+        return None
+    maybe_spawn_git_refresh(cwd, sid)
+    try:
+        with open(git_cache_path(sid)) as f:
+            g = json.load(f)
+    except Exception:
+        return None                                # 首帧无缓存,下帧就有
+    if not g.get("is_repo"):
+        return None
+    branch = g.get("branch") or "?"
+    if len(branch) > 24:
+        branch = branch[:23] + "…"
+    s = c(CYAN, f"⎇ {branch}")
+    if g.get("dirty", 0) > 0:
+        s += " " + c(YELLOW, f"●{g['dirty']}")
+    return s
+
 # ---------- 主渲染 ----------
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--refresh":
         refresh_usage()
+        return
+    if len(sys.argv) > 3 and sys.argv[1] == "--git-refresh":
+        git_refresh(sys.argv[2], sys.argv[3])
         return
 
     try:
@@ -245,17 +510,28 @@ def main():
     except Exception:
         return
 
+    if os.environ.get("CC_STATUSLINE_DEBUG"):  # 调试:dump 真实 stdin 便于核对字段
+        try:
+            with open(os.path.join(HOME, ".claude", "statusline-last-stdin.json"), "w") as _f:
+                json.dump(data, _f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
     model = (data.get("model") or {}).get("display_name") or "Claude"
-    cost = (data.get("cost") or {}).get("total_cost_usd")
+    cost_obj = data.get("cost") or {}
+    cost = cost_obj.get("total_cost_usd")
     ctx_max = 1_000_000 if data.get("exceeds_200k_tokens") else 200_000
     used, out = ctx_tokens(data.get("transcript_path") or "")
 
     pct = (used / ctx_max * 100) if ctx_max else 0
-    rem = max(0, 100 - pct)
     ctx_col = RED if pct >= 85 else (YELLOW if pct >= 60 else GREEN)
 
-    parts = [c(CYAN, f"⚡{model}")]
-    parts.append(c(ctx_col, f"ctx {human(used)}/{human(ctx_max)} {pct:.0f}%") + c(DIM, T["ctx_rem"].format(rem=rem)))
+    parts = [c(CYAN, f"⚡{model}") + (mode_suffix(data) if SHOW_MODE else "")]
+    if SHOW_WT:
+        wt = worktree_segment(data)
+        if wt:
+            parts.append(wt)
+    parts.append(c(ctx_col, f"ctx {human(used)}/{human(ctx_max)} ") + bar(pct, ctx_col) + c(ctx_col, f" {pct:.0f}%"))
     if used or out:
         parts.append(c(DIM, f"⬆ {human(used)}  ⬇ {human(out)}"))
     seg = usage_segment()
@@ -263,8 +539,44 @@ def main():
         parts.append(seg)
     if cost is not None:
         parts.append(c(GREEN, f"${cost:.3f}"))
+    if SHOW_NET:
+        nl = netlines_segment(cost_obj)
+        if nl:
+            parts.append(nl)
+    if SHOW_TOOLS or SHOW_HEALTH or SHOW_TURN:
+        m = session_metrics(data.get("transcript_path") or "", SHOW_TOOLS, SHOW_HEALTH, SHOW_TURN)
+        if SHOW_TOOLS:
+            s = tool_mix_segment(m.get("tools") or {})
+            if s:
+                parts.append(s)
+        if SHOW_HEALTH:
+            s = fail_health_segment(m.get("results") or [])
+            if s:
+                parts.append(s)
+        if SHOW_TURN:
+            s = last_turn_segment(m.get("last_turn"))
+            if s:
+                parts.append(s)
+    if SHOW_GIT:
+        gs = git_segment(data.get("cwd") or (data.get("workspace") or {}).get("current_dir"),
+                         data.get("session_id"))
+        if gs:
+            parts.append(gs)
 
-    print(c(DIM, " | ").join(parts))
+    sep = c(DIM, " | ")
+    width = WRAP_WIDTH
+    if width <= 0:
+        try:
+            width = int(os.environ.get("COLUMNS", "0"))
+        except ValueError:
+            width = 0
+        if width <= 0:
+            width = 100                     # COLUMNS 不可用时的兜底宽度
+    if WRAP:
+        lines = wrap_segments(parts, max(20, width - 1))
+        print("\n".join(sep.join(ln) for ln in lines))
+    else:
+        print(sep.join(parts))
 
 if __name__ == "__main__":
     main()
