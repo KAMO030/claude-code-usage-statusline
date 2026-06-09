@@ -226,7 +226,8 @@ def _countdown(mins):
     h = mins // 60
     if h < 24:
         return f"{h}h"
-    return f"{h//24}d"
+    d, hh = divmod(h, 24)
+    return f"{d}d{hh}h" if hh else f"{d}d"  # 7 天窗精确到小时,如 5d3h
 
 _WD_EN = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
